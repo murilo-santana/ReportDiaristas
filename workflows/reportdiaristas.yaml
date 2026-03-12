@@ -1,30 +1,29 @@
-name: Rodar Automacao de Login
+name: Executar Robo SeaTalk
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # Botão manual
+  # schedule:
+  #   - cron: '0 9 * * 1-5' # Opcional: roda às 09:00 de Seg a Sex
 
 jobs:
-  run-playwright-script:
+  automacao:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Baixar os arquivos do repositório
+      - name: Checkout do Código
         uses: actions/checkout@v4
 
-      - name: Configurar o Python
+      - name: Instalar Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Instalar dependências (requirements.txt)
+      - name: Instalar Bibliotecas
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install playwright requests
+          playwright install --with-deps chromium
 
-      - name: Instalar navegadores do Playwright
-        run: playwright install --with-deps chromium
-
-      - name: Executar o script Python
+      - name: Executar Script
         env:
           EMAIL_LOGIN: ${{ secrets.EMAIL_LOGIN }}
           SENHA_LOGIN: ${{ secrets.SENHA_LOGIN }}
