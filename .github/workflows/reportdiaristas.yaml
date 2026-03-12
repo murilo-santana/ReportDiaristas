@@ -1,9 +1,7 @@
 name: Executar Robo SeaTalk
 
 on:
-  workflow_dispatch: # Botão manual
-  # schedule:
-  #   - cron: '0 9 * * 1-5' # Opcional: roda às 09:00 de Seg a Sex
+  workflow_dispatch: # Permite que você clique no botão "Run Workflow"
 
 jobs:
   automacao:
