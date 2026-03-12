@@ -3,7 +3,6 @@ import logging
 import requests
 from playwright.sync_api import sync_playwright
 
-# Configuração de Logs
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -20,7 +19,7 @@ def enviar_reporte_seatalk(mensagem):
         logging.error(f"Erro SeaTalk: {e}")
 
 def automacao_dw_management():
-    logging.info("Iniciando Robô com filtros rigorosos...")
+    logging.info("Iniciando Robô com verificação de páginas...")
     email = os.getenv("EMAIL_LOGIN")
     senha = os.getenv("SENHA_LOGIN")
 
@@ -39,68 +38,76 @@ def automacao_dw_management():
             page.wait_for_timeout(5000)
             page.get_by_text("Controle de presença").last.click()
             page.wait_for_load_state("networkidle")
-            page.wait_for_timeout(3000)
 
-            # 2. Processamento de dados
-            linhas = page.locator("table tbody tr").all()
+            # 2. Processamento Multinível (Páginas e Linhas)
             total_producao = 0
             total_atraso = 0
             blocos_atraso = []
             blocos_producao = []
+            encontrou_finalizado = False
+            pagina_atual = 1
 
-            for linha in linhas:
-                # Pegamos o texto de cada célula e limpamos espaços (strip)
-                colunas = [td.inner_text().strip() for td in linha.locator("td").all()]
+            while not encontrou_finalizado:
+                logging.info(f"Lendo página {pagina_atual}...")
+                page.wait_for_timeout(2000) # Espera a tabela estabilizar
                 
-                if len(colunas) < 12: continue
-
-                # Extração baseada nos índices confirmados
-                bpo        = colunas[2]   # BPO
-                tipo_op    = colunas[6]   # Tipo de operação
-                data_trab  = colunas[7]   # Data de trabalho
-                horario    = colunas[8]   # Horario
-                area       = colunas[9]   # Area
-                status     = colunas[11]  # Status
-
-                # --- FILTROS RÍGIDOS ---
-                # Só prossegue se for exatamente SOC e Operação
-                if tipo_op != "SOC" or area != "Operação":
-                    continue
-
-                # --- FORMATAÇÃO POR STATUS ---
-                # Usamos comparação exata para não pegar o texto de outros botões
-                if status == "Em atraso":
-                    total_atraso += 1
-                    bloco = (f"🏢 BPO: {bpo}\n"
-                             f"📅 Data: {data_trab}\n"
-                             f"⏱️ Horário: {horario}")
-                    blocos_atraso.append(bloco)
+                linhas = page.locator("table tbody tr").all()
                 
-                elif status == "Em produção":
-                    total_producao += 1
-                    bloco = (f"📅 Data: {data_trab}\n"
-                             f"⏱️ Horário: {horario}\n"
-                             f"🏢 BPO: {bpo}")
-                    blocos_producao.append(bloco)
+                for linha in linhas:
+                    colunas = [td.inner_text().strip() for td in linha.locator("td").all()]
+                    if len(colunas) < 12: continue
+
+                    status = colunas[11]
+
+                    # --- REGRA DE PARADA ---
+                    if "Finalizado" in status:
+                        logging.info("Primeiro 'Finalizado' encontrado. Parando a busca.")
+                        encontrou_finalizado = True
+                        break # Sai do loop das linhas
+
+                    # --- FILTROS DE OPERAÇÃO ---
+                    bpo, tipo_op, data_trab, horario, area = colunas[2], colunas[6], colunas[7], colunas[8], colunas[9]
+                    
+                    if tipo_op != "SOC" or area != "Operação":
+                        continue
+
+                    if status == "Em atraso":
+                        total_atraso += 1
+                        blocos_atraso.append(f"🏢 BPO: {bpo}\n📅 Data: {data_trab}\n⏱️ Horário: {horario}")
+                    
+                    elif status == "Em produção":
+                        total_producao += 1
+                        blocos_producao.append(f"📅 Data: {data_trab}\n⏱️ Horário: {horario}\n🏢 BPO: {bpo}")
+
+                # Se já encontrou um finalizado, não precisa ir para a próxima página
+                if encontrou_finalizado:
+                    break
+
+                # Tenta clicar no botão "Próximo" da paginação
+                # No Filament, geralmente é um botão com o ícone de seta para a direita
+                botao_proximo = page.locator("button[aria-label='Próxima'], button:has([class*='chevron-right'])").first
+                
+                if botao_proximo.is_visible() and botao_proximo.is_enabled():
+                    botao_proximo.click()
+                    pagina_atual += 1
+                else:
+                    logging.info("Fim das páginas disponíveis.")
+                    break
 
             # 3. CONSTRUÇÃO DA MENSAGEM
             if total_atraso > 0 or total_producao > 0:
                 msg_final = f"📊 Relatório de pedidos DW em aberto\n\nAtrasos: {total_atraso} | Produção: {total_producao}\n\n"
                 
                 if total_atraso > 0:
-                    msg_final += "🚨 *URGENTE: PEDIDOS EM ATRASO*\n\n"
-                    msg_final += "\n\n".join(blocos_atraso)
-                    msg_final += "\n\n\n"
+                    msg_final += "🚨 *URGENTE: PEDIDOS EM ATRASO*\n\n" + "\n\n".join(blocos_atraso) + "\n\n\n"
 
                 if total_producao > 0:
-                    msg_final += "⚠️ *PEDIDOS EM PRODUÇÃO*\n\n"
-                    msg_final += "Lembrete, não se esqueça de finalizar essas tarefas.\n\n"
+                    msg_final += "⚠️ *PEDIDOS EM PRODUÇÃO*\n\nLembrete, não se esqueça de finalizar essas tarefas.\n\n"
                     msg_final += "\n---------------------------------------\n".join(blocos_producao)
             else:
                 msg_final = "✅ Relatório DW: Tudo em dia! Nenhum pedido SOC Operação pendente."
 
             enviar_reporte_seatalk(msg_final)
-            logging.info(f"Reporte enviado. Produção: {total_producao}, Atrasos: {total_atraso}")
 
         except Exception as e:
             enviar_reporte_seatalk(f"❌ Erro: {str(e)[:100]}")
