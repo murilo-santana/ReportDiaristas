@@ -3,7 +3,7 @@ import logging
 import requests
 from playwright.sync_api import sync_playwright
 
-# Configuração de Logs para o console do GitHub Actions
+# Configuração de Logs
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -11,7 +11,7 @@ logging.basicConfig(
 )
 
 def enviar_reporte_seatalk(mensagem):
-    """Envia a mensagem para o SeaTalk usando o padrão de tag:text."""
+    """Envia reporte no padrão SeaTalk do grupo."""
     webhook_url = os.getenv("WEBHOOK_URL")
     if not webhook_url:
         logging.error("WEBHOOK_URL não encontrada nos Secrets.")
@@ -25,11 +25,9 @@ def enviar_reporte_seatalk(mensagem):
     try:
         response = requests.post(webhook_url, json=payload, timeout=10)
         if response.status_code == 200:
-            logging.info(f"Relatório enviado ao SeaTalk: {mensagem}")
-        else:
-            logging.error(f"Erro no SeaTalk: {response.status_code}")
+            logging.info(f"Reporte SeaTalk enviado: {mensagem}")
     except Exception as e:
-        logging.error(f"Falha ao conectar no SeaTalk: {e}")
+        logging.error(f"Erro ao conectar no SeaTalk: {e}")
 
 def fazer_login():
     logging.info("Iniciando Robô de Login...")
@@ -37,11 +35,11 @@ def fazer_login():
     senha = os.getenv("SENHA_LOGIN")
 
     if not email or not senha:
-        logging.error("EMAIL_LOGIN ou SENHA_LOGIN não configurados.")
+        logging.error("Credenciais ausentes.")
         return
 
     with sync_playwright() as p:
-        # headless=True é obrigatório para rodar no servidor do GitHub
+        # headless=True é obrigatório para o GitHub Actions
         browser = p.chromium.launch(headless=True)
         context = browser.new_context()
         page = context.new_page()
@@ -54,27 +52,29 @@ def fazer_login():
             page.locator("[id='data.email']").fill(email)
             page.locator("[id='data.password']").fill(senha)
 
-            logging.info("Clicando no botão de entrar...")
-            page.locator("button.filament-button").click()
+            logging.info("Clicando no botão de Login usando o XPath fornecido...")
+            # Usando o XPath exato que você extraiu do HTML
+            xpath_botao = "/html[1]/body[1]/div[1]/div[1]/main[1]/div[1]/section[1]/form[1]/div[2]/div[1]/button[1]"
+            page.locator(xpath_botao).click()
 
-            # Espera 5 segundos para a página carregar após o login
+            # Aguarda o processamento do login
             page.wait_for_timeout(5000)
 
-            # Verifica se o login teve sucesso (se a URL mudou)
+            # Validação de sucesso
             if "login" not in page.url:
-                enviar_reporte_seatalk(f"✅ Login realizado com sucesso!\nURL: {page.url}")
                 logging.info("Login efetuado com sucesso.")
+                enviar_reporte_seatalk(f"✅ Login realizado com sucesso no DW!\nURL Atual: {page.url}")
             else:
-                enviar_reporte_seatalk("❌ Falha no login: A página permaneceu na tela de acesso.")
-                logging.warning("Falha no login.")
+                logging.warning("O login parece ter falhado (ainda na tela de login).")
+                enviar_reporte_seatalk("❌ Falha no login: O sistema não avançou após o clique.")
 
         except Exception as e:
-            msg_erro = f"❌ Erro na execução: {str(e)[:150]}"
+            msg_erro = f"❌ Erro na automação: {str(e)[:150]}"
             logging.error(msg_erro)
             enviar_reporte_seatalk(msg_erro)
         finally:
             browser.close()
-            logging.info("Navegador fechado.")
+            logging.info("Sessão encerrada.")
 
 if __name__ == "__main__":
     fazer_login()
