@@ -20,7 +20,7 @@ def enviar_reporte_seatalk(mensagem):
         logging.error(f"Erro SeaTalk: {e}")
 
 def automacao_dw_management():
-    logging.info("Iniciando Robô com Filtros de Operação...")
+    logging.info("Ajustando layout final do reporte...")
     email = os.getenv("EMAIL_LOGIN")
     senha = os.getenv("SENHA_LOGIN")
 
@@ -41,17 +41,17 @@ def automacao_dw_management():
             page.wait_for_load_state("networkidle")
             page.wait_for_timeout(2000)
 
-            # 2. Processamento com Filtros Específicos
+            # 2. Processamento de dados
             linhas = page.locator("table tbody tr").all()
             total_producao = 0
             total_atraso = 0
-            blocos_mensagem = []
+            blocos_atraso = []
+            blocos_producao = []
 
             for linha in linhas:
                 colunas = linha.locator("td").all_text_contents()
                 if len(colunas) < 12: continue
 
-                # Captura de dados brutos
                 bpo = colunas[2].strip()
                 tipo_op = colunas[6].strip()
                 data_trab = colunas[7].strip()
@@ -59,55 +59,50 @@ def automacao_dw_management():
                 area = colunas[9].strip()
                 status = colunas[11].strip()
 
-                # --- APLICAÇÃO DOS FILTROS ---
-                # 1. Filtro de Tipo de Operação (Apenas SOC)
-                if tipo_op != "SOC":
-                    continue
-                
-                # 2. Filtro de Área (Apenas Operação)
-                if area != "Operação":
+                if tipo_op != "SOC" or area != "Operação":
                     continue
 
-                # 3. Filtro de Status (Apenas "Em produção" ou "Em atraso")
-                icone_status = ""
+                # --- FORMATAÇÃO PERSONALIZADA ---
                 if "Em atraso" in status:
-                    icone_status = "🚨 *ALERTA MÁXIMO*"
                     total_atraso += 1
+                    # Atraso: BPO primeiro (Multiline)
+                    bloco = (f"🏢 BPO: {bpo}\n"
+                             f"📅 Data: {data_trab}\n"
+                             f"⏱️ Horário: {horario}")
+                    blocos_atraso.append(bloco)
+                
                 elif "Em produção" in status:
-                    icone_status = "⚠️ Lembrete"
                     total_producao += 1
-                else:
-                    continue # Descarta qualquer outro status
+                    # Produção: Data/Horário primeiro e depois BPO
+                    bloco = (f"📅 Data: {data_trab}\n"
+                             f"⏱️ Horário: {horario}\n"
+                             f"🏢 BPO: {bpo}")
+                    blocos_producao.append(bloco)
 
-                # Montagem do bloco de texto (Tipo de Operação não entra no reporte)
-                item = (f"{icone_status}\n"
-                        f"🏢 *BPO:* {bpo} | *Área:* {area}\n"
-                        f"📅 *Data:* {data_trab} | *Horário:* {horario}\n"
-                        f"----------------------------------")
-                
-                # Prioriza os atrasos no topo da lista
-                if "Em atraso" in status:
-                    blocos_mensagem.insert(0, item)
-                else:
-                    blocos_mensagem.append(item)
-
-            # 3. Construção do Reporte
+            # 3. CONSTRUÇÃO DA MENSAGEM (EXATAMENTE COMO SOLICITADO)
             if total_atraso > 0 or total_producao > 0:
-                header = f"📊 *Relatório de Status SOC*\n"
-                resumo_counts = f"Atrasos: {total_atraso} | Produção: {total_producao}\n\n"
-                corpo = "\n".join(blocos_mensagem[:8]) # Mostra até 8 registros
+                msg_final = f"📊 Relatório de pedidos DW em aberto\n\nAtrasos: {total_atraso} | Produção: {total_producao}\n\n"
                 
-                msg_final = header + resumo_counts + corpo
-                if len(blocos_mensagem) > 8:
-                    msg_final += f"\n... e outros {len(blocos_mensagem) - 8} itens pendentes."
+                # SEÇÃO URGENTE
+                if total_atraso > 0:
+                    msg_final += "🚨 *URGENTE: PEDIDOS EM ATRASO*\n\n"
+                    msg_final += "\n\n".join(blocos_atraso)
+                    msg_final += "\n\n\n" # Espaço maior entre seções
+
+                # SEÇÃO PRODUÇÃO
+                if total_producao > 0:
+                    msg_final += "⚠️ *PEDIDOS EM PRODUÇÃO*\n\n"
+                    msg_final += "Lembrete, não se esqueça de finalizar essas tarefas.\n\n"
+                    # Separador tracejado específico para produção
+                    msg_final += "\n---------------------------------------\n".join(blocos_producao)
             else:
-                msg_final = "✅ *Status:* Tudo limpo! Nenhum 'SOC - Operação' pendente no momento."
+                msg_final = "✅ Relatório DW: Tudo em dia! Nenhum pedido SOC Operação em aberto."
 
             enviar_reporte_seatalk(msg_final)
-            logging.info("Reporte filtrado enviado.")
+            logging.info("Reporte com layout final enviado.")
 
         except Exception as e:
-            enviar_reporte_seatalk(f"❌ Erro nos filtros: {str(e)[:100]}")
+            enviar_reporte_seatalk(f"❌ Erro de Layout: {str(e)[:100]}")
         finally:
             browser.close()
 
