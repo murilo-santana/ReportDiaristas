@@ -1,10 +1,12 @@
-name: Executar Robo SeaTalk
+name: automacao
 
 on:
-  workflow_dispatch: # Permite que você clique no botão "Run Workflow"
+  workflow_dispatch: # Permite rodar manual
+  # schedule:
+  #   - cron: '0 * * * *' # Exemplo: Roda de hora em hora
 
 jobs:
-  automacao:
+  build:
     runs-on: ubuntu-latest
 
     steps:
@@ -14,12 +16,22 @@ jobs:
       - name: Instalar Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
+          cache: 'pip' # Faz cache automático das bibliotecas do pip
 
       - name: Instalar Bibliotecas
         run: |
           pip install playwright requests
-          playwright install --with-deps chromium
+      - name: Cache do Playwright Browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('**/main.py') }}
+
+      - name: Instalar Navegador (Apenas se não houver cache)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: playwright install chromium --with-deps
 
       - name: Executar Script
         env:
