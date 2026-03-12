@@ -28,4 +28,4 @@ jobs:
           EMAIL_LOGIN: ${{ secrets.EMAIL_LOGIN }}
           SENHA_LOGIN: ${{ secrets.SENHA_LOGIN }}
           WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
-        run: python automacao_login.py
+        run: python main.py
