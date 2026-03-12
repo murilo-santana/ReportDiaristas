@@ -1,0 +1,32 @@
+name: Rodar Automacao de Login
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run-playwright-script:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Baixar os arquivos do repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar o Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Instalar dependências (requirements.txt)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Instalar navegadores do Playwright
+        run: playwright install --with-deps chromium
+
+      - name: Executar o script Python
+        env:
+          EMAIL_LOGIN: ${{ secrets.EMAIL_LOGIN }}
+          SENHA_LOGIN: ${{ secrets.SENHA_LOGIN }}
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+        run: python automacao_login.py
