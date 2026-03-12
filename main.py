@@ -19,7 +19,7 @@ def enviar_reporte_seatalk(mensagem):
         logging.error(f"Erro SeaTalk: {e}")
 
 def automacao_dw_management():
-    logging.info("Iniciando Robô com filtros e parada por 'Finalizado'...")
+    logging.info("Iniciando Robô com filtros rigorosos por Área e Operação...")
     email = os.getenv("EMAIL_LOGIN")
     senha = os.getenv("SENHA_LOGIN")
 
@@ -52,43 +52,44 @@ def automacao_dw_management():
                 linhas = page.locator("table tbody tr").all()
                 
                 for linha in linhas:
-                    # Extração rigorosa de texto de cada coluna
-                    celulas = linha.locator("td").all()
-                    colunas = [c.inner_text().strip() for c in celulas]
+                    # Coleta de dados com limpeza absoluta de espaços
+                    colunas = [td.inner_text().strip() for td in linha.locator("td").all()]
                     
                     if len(colunas) < 12: continue
 
                     status = colunas[11]
 
-                    # --- REGRA DE PARADA (Deve ser a primeira coisa) ---
+                    # 1. REGRA DE PARADA: Se for finalizado, para o robô inteiro agora.
                     if "Finalizado" in status:
-                        logging.info(f"Status 'Finalizado' detectado. Encerrando capturas.")
+                        logging.info("Status 'Finalizado' encontrado. Encerrando leitura.")
                         encontrou_finalizado = True
                         break 
 
-                    # --- FILTROS DE SEGURANÇA ---
+                    # 2. CAPTURA DE DADOS
                     bpo = colunas[2]
                     tipo_op = colunas[6]
                     data_trab = colunas[7]
                     horario = colunas[8]
                     area = colunas[9]
 
-                    # Filtro SOC e Operação (usando 'in' para evitar erro com espaços invisíveis)
-                    if "SOC" not in tipo_op or "Operação" not in area:
+                    # 3. FILTROS RÍGIDOS: Só aceita se for SOC E Operação
+                    # Usamos == para garantir que 'Almoxarifado' nunca passe.
+                    if tipo_op != "SOC" or area != "Operação":
+                        logging.info(f"Ignorando linha: {area} - {tipo_op}")
                         continue
 
-                    # --- SEPARAÇÃO POR STATUS ---
-                    if "Em atraso" in status:
+                    # 4. SEPARAÇÃO PARA O REPORTE
+                    if status == "Em atraso":
                         total_atraso += 1
                         blocos_atraso.append(f"🏢 BPO: {bpo}\n📅 Data: {data_trab}\n⏱️ Horário: {horario}")
                     
-                    elif "Em produção" in status:
+                    elif status == "Em produção":
                         total_producao += 1
                         blocos_producao.append(f"📅 Data: {data_trab}\n⏱️ Horário: {horario}\n🏢 BPO: {bpo}")
 
                 if encontrou_finalizado: break
 
-                # Paginação
+                # Tentativa de ir para a próxima página se necessário
                 botao_proximo = page.locator("button[aria-label='Próxima'], button:has([class*='chevron-right'])").first
                 if botao_proximo.is_visible() and botao_proximo.is_enabled():
                     botao_proximo.click()
@@ -96,7 +97,7 @@ def automacao_dw_management():
                 else:
                     break
 
-            # 3. CONSTRUÇÃO DA MENSAGEM
+            # 3. MONTAGEM DA MENSAGEM FINAL
             if total_atraso > 0 or total_producao > 0:
                 msg_final = f"📊 Relatório de pedidos DW em aberto\n\nAtrasos: {total_atraso} | Produção: {total_producao}\n\n"
                 
@@ -110,11 +111,12 @@ def automacao_dw_management():
                     msg_final += "\n---------------------------------------\n".join(blocos_producao)
                 
                 enviar_reporte_seatalk(msg_final)
+                logging.info(f"Sucesso: {total_producao} em produção e {total_atraso} em atraso.")
             else:
-                logging.info("Nada pendente para reportar.")
+                logging.info("Nada pendente nos filtros SOC/Operação.")
 
         except Exception as e:
-            enviar_reporte_seatalk(f"❌ Erro no Script: {str(e)[:100]}")
+            enviar_reporte_seatalk(f"❌ Erro no Robô: {str(e)[:100]}")
         finally:
             browser.close()
 
