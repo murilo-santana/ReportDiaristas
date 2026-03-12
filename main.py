@@ -19,7 +19,7 @@ def enviar_reporte_seatalk(mensagem):
         logging.error(f"Erro SeaTalk: {e}")
 
 def automacao_dw_management():
-    logging.info("Iniciando Robô com verificação de páginas...")
+    logging.info("Iniciando Robô com filtros e parada por 'Finalizado'...")
     email = os.getenv("EMAIL_LOGIN")
     senha = os.getenv("SENHA_LOGIN")
 
@@ -29,7 +29,6 @@ def automacao_dw_management():
         page = context.new_page()
 
         try:
-            # 1. Login e Navegação
             page.goto("https://dwmanagement.spx.com.br/admin/login", timeout=60000)
             page.locator("[id='data.email']").fill(email)
             page.locator("[id='data.password']").fill(senha)
@@ -39,7 +38,6 @@ def automacao_dw_management():
             page.get_by_text("Controle de presença").last.click()
             page.wait_for_load_state("networkidle")
 
-            # 2. Processamento Multinível (Páginas e Linhas)
             total_producao = 0
             total_atraso = 0
             blocos_atraso = []
@@ -49,49 +47,53 @@ def automacao_dw_management():
 
             while not encontrou_finalizado:
                 logging.info(f"Lendo página {pagina_atual}...")
-                page.wait_for_timeout(2000) # Espera a tabela estabilizar
+                page.wait_for_timeout(3000) 
                 
                 linhas = page.locator("table tbody tr").all()
                 
                 for linha in linhas:
-                    colunas = [td.inner_text().strip() for td in linha.locator("td").all()]
+                    # Extração rigorosa de texto de cada coluna
+                    celulas = linha.locator("td").all()
+                    colunas = [c.inner_text().strip() for c in celulas]
+                    
                     if len(colunas) < 12: continue
 
                     status = colunas[11]
 
-                    # --- REGRA DE PARADA ---
+                    # --- REGRA DE PARADA (Deve ser a primeira coisa) ---
                     if "Finalizado" in status:
-                        logging.info("Primeiro 'Finalizado' encontrado. Parando a busca.")
+                        logging.info(f"Status 'Finalizado' detectado. Encerrando capturas.")
                         encontrou_finalizado = True
-                        break # Sai do loop das linhas
+                        break 
 
-                    # --- FILTROS DE OPERAÇÃO ---
-                    bpo, tipo_op, data_trab, horario, area = colunas[2], colunas[6], colunas[7], colunas[8], colunas[9]
-                    
-                    if tipo_op != "SOC" or area != "Operação":
+                    # --- FILTROS DE SEGURANÇA ---
+                    bpo = colunas[2]
+                    tipo_op = colunas[6]
+                    data_trab = colunas[7]
+                    horario = colunas[8]
+                    area = colunas[9]
+
+                    # Filtro SOC e Operação (usando 'in' para evitar erro com espaços invisíveis)
+                    if "SOC" not in tipo_op or "Operação" not in area:
                         continue
 
-                    if status == "Em atraso":
+                    # --- SEPARAÇÃO POR STATUS ---
+                    if "Em atraso" in status:
                         total_atraso += 1
                         blocos_atraso.append(f"🏢 BPO: {bpo}\n📅 Data: {data_trab}\n⏱️ Horário: {horario}")
                     
-                    elif status == "Em produção":
+                    elif "Em produção" in status:
                         total_producao += 1
                         blocos_producao.append(f"📅 Data: {data_trab}\n⏱️ Horário: {horario}\n🏢 BPO: {bpo}")
 
-                # Se já encontrou um finalizado, não precisa ir para a próxima página
-                if encontrou_finalizado:
-                    break
+                if encontrou_finalizado: break
 
-                # Tenta clicar no botão "Próximo" da paginação
-                # No Filament, geralmente é um botão com o ícone de seta para a direita
+                # Paginação
                 botao_proximo = page.locator("button[aria-label='Próxima'], button:has([class*='chevron-right'])").first
-                
                 if botao_proximo.is_visible() and botao_proximo.is_enabled():
                     botao_proximo.click()
                     pagina_atual += 1
                 else:
-                    logging.info("Fim das páginas disponíveis.")
                     break
 
             # 3. CONSTRUÇÃO DA MENSAGEM
@@ -99,18 +101,20 @@ def automacao_dw_management():
                 msg_final = f"📊 Relatório de pedidos DW em aberto\n\nAtrasos: {total_atraso} | Produção: {total_producao}\n\n"
                 
                 if total_atraso > 0:
-                    msg_final += "🚨 *URGENTE: PEDIDOS EM ATRASO*\n\n" + "\n\n".join(blocos_atraso) + "\n\n\n"
+                    msg_final += "🚨 *URGENTE: PEDIDOS EM ATRASO*\n\n"
+                    msg_final += "\n\n".join(blocos_atraso)
+                    msg_final += "\n\n\n"
 
                 if total_producao > 0:
                     msg_final += "⚠️ *PEDIDOS EM PRODUÇÃO*\n\nLembrete, não se esqueça de finalizar essas tarefas.\n\n"
                     msg_final += "\n---------------------------------------\n".join(blocos_producao)
+                
+                enviar_reporte_seatalk(msg_final)
             else:
-                msg_final = "✅ Relatório DW: Tudo em dia! Nenhum pedido SOC Operação pendente."
-
-            enviar_reporte_seatalk(msg_final)
+                logging.info("Nada pendente para reportar.")
 
         except Exception as e:
-            enviar_reporte_seatalk(f"❌ Erro: {str(e)[:100]}")
+            enviar_reporte_seatalk(f"❌ Erro no Script: {str(e)[:100]}")
         finally:
             browser.close()
 
