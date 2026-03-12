@@ -13,64 +13,103 @@ logging.basicConfig(
 def enviar_reporte_seatalk(mensagem):
     webhook_url = os.getenv("WEBHOOK_URL")
     if not webhook_url: return
-
-    payload = {
-        "tag": "text",
-        "text": {"content": mensagem}
-    }
-
+    payload = {"tag": "text", "text": {"content": mensagem}}
     try:
         requests.post(webhook_url, json=payload, timeout=10)
-        logging.info("Reporte enviado ao SeaTalk.")
     except Exception as e:
         logging.error(f"Erro SeaTalk: {e}")
 
-def fazer_login_e_navegar():
-    logging.info("Iniciando Robô...")
+def automacao_dw_management():
+    logging.info("Iniciando Robô com Filtros de Operação...")
     email = os.getenv("EMAIL_LOGIN")
     senha = os.getenv("SENHA_LOGIN")
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        context = browser.new_context()
+        context = browser.new_context(viewport={'width': 1920, 'height': 1080})
         page = context.new_page()
 
         try:
-            # 1. Realiza o Login
-            logging.info("Acessando tela de login...")
+            # 1. Login e Navegação
             page.goto("https://dwmanagement.spx.com.br/admin/login", timeout=60000)
             page.locator("[id='data.email']").fill(email)
             page.locator("[id='data.password']").fill(senha)
             page.get_by_role("button", name="Login", exact=True).click()
-
-            # Aguarda a dashboard aparecer
+            
             page.wait_for_timeout(5000)
-            
-            if "login" in page.url:
-                logging.error("Falha ao passar da tela de login.")
-                enviar_reporte_seatalk("❌ Erro: O robô não conseguiu passar da tela de login.")
-                return
-
-            # 2. Navega para Controle de Presença (O de baixo)
-            logging.info("Clicando no segundo 'Controle de presença' no menu...")
-            
-            # .last() garante que ele pegue a última ocorrência encontrada na página
-            # que é justamente o link dentro do grupo, como você mostrou na imagem.
             page.get_by_text("Controle de presença").last.click()
+            page.wait_for_load_state("networkidle")
+            page.wait_for_timeout(2000)
 
-            # Aguarda a página de presença carregar
-            page.wait_for_timeout(3000)
-            
-            logging.info(f"Página de presença acessada: {page.url}")
-            enviar_reporte_seatalk(f"✅ Sucesso! O robô clicou no item correto.\n📍 Agora estou em: Controle de Presença")
+            # 2. Processamento com Filtros Específicos
+            linhas = page.locator("table tbody tr").all()
+            total_producao = 0
+            total_atraso = 0
+            blocos_mensagem = []
+
+            for linha in linhas:
+                colunas = linha.locator("td").all_text_contents()
+                if len(colunas) < 12: continue
+
+                # Captura de dados brutos
+                bpo = colunas[2].strip()
+                tipo_op = colunas[6].strip()
+                data_trab = colunas[7].strip()
+                horario = colunas[8].strip()
+                area = colunas[9].strip()
+                status = colunas[11].strip()
+
+                # --- APLICAÇÃO DOS FILTROS ---
+                # 1. Filtro de Tipo de Operação (Apenas SOC)
+                if tipo_op != "SOC":
+                    continue
+                
+                # 2. Filtro de Área (Apenas Operação)
+                if area != "Operação":
+                    continue
+
+                # 3. Filtro de Status (Apenas "Em produção" ou "Em atraso")
+                icone_status = ""
+                if "Em atraso" in status:
+                    icone_status = "🚨 *ALERTA MÁXIMO*"
+                    total_atraso += 1
+                elif "Em produção" in status:
+                    icone_status = "⚠️ Lembrete"
+                    total_producao += 1
+                else:
+                    continue # Descarta qualquer outro status
+
+                # Montagem do bloco de texto (Tipo de Operação não entra no reporte)
+                item = (f"{icone_status}\n"
+                        f"🏢 *BPO:* {bpo} | *Área:* {area}\n"
+                        f"📅 *Data:* {data_trab} | *Horário:* {horario}\n"
+                        f"----------------------------------")
+                
+                # Prioriza os atrasos no topo da lista
+                if "Em atraso" in status:
+                    blocos_mensagem.insert(0, item)
+                else:
+                    blocos_mensagem.append(item)
+
+            # 3. Construção do Reporte
+            if total_atraso > 0 or total_producao > 0:
+                header = f"📊 *Relatório de Status SOC*\n"
+                resumo_counts = f"Atrasos: {total_atraso} | Produção: {total_producao}\n\n"
+                corpo = "\n".join(blocos_mensagem[:8]) # Mostra até 8 registros
+                
+                msg_final = header + resumo_counts + corpo
+                if len(blocos_mensagem) > 8:
+                    msg_final += f"\n... e outros {len(blocos_mensagem) - 8} itens pendentes."
+            else:
+                msg_final = "✅ *Status:* Tudo limpo! Nenhum 'SOC - Operação' pendente no momento."
+
+            enviar_reporte_seatalk(msg_final)
+            logging.info("Reporte filtrado enviado.")
 
         except Exception as e:
-            msg_erro = f"❌ Erro na automação: {str(e)[:150]}"
-            logging.error(msg_erro)
-            enviar_reporte_seatalk(msg_erro)
+            enviar_reporte_seatalk(f"❌ Erro nos filtros: {str(e)[:100]}")
         finally:
             browser.close()
-            logging.info("Sessão encerrada.")
 
 if __name__ == "__main__":
-    fazer_login_e_navegar()
+    automacao_dw_management()
