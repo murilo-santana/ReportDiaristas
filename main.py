@@ -12,8 +12,7 @@ logging.basicConfig(
 
 def enviar_reporte_seatalk(mensagem):
     webhook_url = os.getenv("WEBHOOK_URL")
-    if not webhook_url:
-        return
+    if not webhook_url: return
 
     payload = {
         "tag": "text",
@@ -26,8 +25,8 @@ def enviar_reporte_seatalk(mensagem):
     except Exception as e:
         logging.error(f"Erro SeaTalk: {e}")
 
-def fazer_login():
-    logging.info("Iniciando Robô de Login...")
+def fazer_login_e_navegar():
+    logging.info("Iniciando Robô...")
     email = os.getenv("EMAIL_LOGIN")
     senha = os.getenv("SENHA_LOGIN")
 
@@ -37,30 +36,36 @@ def fazer_login():
         page = context.new_page()
 
         try:
-            logging.info("Acessando SPX DW Management...")
+            # 1. Realiza o Login
+            logging.info("Acessando tela de login...")
             page.goto("https://dwmanagement.spx.com.br/admin/login", timeout=60000)
-
-            logging.info("Preenchendo credenciais...")
             page.locator("[id='data.email']").fill(email)
             page.locator("[id='data.password']").fill(senha)
-
-            logging.info("Clicando no botão de Login (fundo amarelo)...")
-            # get_by_role garante que é um botão
-            # exact=True garante que ele ignore o "Faça login" do cabeçalho
             page.get_by_role("button", name="Login", exact=True).click()
 
-            # Aguarda o processamento do login
+            # Aguarda a dashboard aparecer
             page.wait_for_timeout(5000)
+            
+            if "login" in page.url:
+                logging.error("Falha ao passar da tela de login.")
+                enviar_reporte_seatalk("❌ Erro: O robô não conseguiu passar da tela de login.")
+                return
 
-            if "login" not in page.url:
-                logging.info("Login efetuado com sucesso!")
-                enviar_reporte_seatalk(f"✅ Login realizado com sucesso!\nURL: {page.url}")
-            else:
-                logging.warning("Login falhou ou a página não carregou a tempo.")
-                enviar_reporte_seatalk("❌ Falha no login: O robô clicou, mas ainda estamos na tela de acesso.")
+            # 2. Navega para Controle de Presença (O de baixo)
+            logging.info("Clicando no segundo 'Controle de presença' no menu...")
+            
+            # .last() garante que ele pegue a última ocorrência encontrada na página
+            # que é justamente o link dentro do grupo, como você mostrou na imagem.
+            page.get_by_text("Controle de presença").last.click()
+
+            # Aguarda a página de presença carregar
+            page.wait_for_timeout(3000)
+            
+            logging.info(f"Página de presença acessada: {page.url}")
+            enviar_reporte_seatalk(f"✅ Sucesso! O robô clicou no item correto.\n📍 Agora estou em: Controle de Presença")
 
         except Exception as e:
-            msg_erro = f"❌ Erro: {str(e)[:150]}"
+            msg_erro = f"❌ Erro na automação: {str(e)[:150]}"
             logging.error(msg_erro)
             enviar_reporte_seatalk(msg_erro)
         finally:
@@ -68,4 +73,4 @@ def fazer_login():
             logging.info("Sessão encerrada.")
 
 if __name__ == "__main__":
-    fazer_login()
+    fazer_login_e_navegar()
