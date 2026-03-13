@@ -5,8 +5,11 @@ from playwright.sync_api import sync_playwright
 from datetime import datetime
 from pytz import timezone
 
-# --- CONFIGURAÇÕES DE ESCALA ---
+# --- CONFIGURAÇÕES DE ESCALA E ALERTAS ---
 FUSO_HORARIO_SP = timezone('America/Sao_Paulo')
+
+# LIGA/DESLIGA: Altere para False para não receber alertas de tarefas "Em produção"
+ATIVAR_ALERTA_PRODUCAO = True  # Para desligar, trocar o "True" por "False"
 
 # Lista de IDs por Turno
 TURNO_PARA_IDS = {
@@ -144,15 +147,27 @@ def automacao_dw_management():
                 if btn.is_visible() and btn.is_enabled(): btn.click()
                 else: break
 
-            if total_atraso > 0 or total_producao > 0:
-                header = f"📊 Relatório de pedidos DW em aberto\n\nAtrasos: {total_atraso} | Produção: {total_producao}\n\n"
+            # --- NOVA LÓGICA DE ENVIO APLICADA AQUI ---
+            # Só continua se tiver atrasos, OU se tiver produção e o alerta não urgente estiver ativado
+            if total_atraso > 0 or (total_producao > 0 and ATIVAR_ALERTA_PRODUCAO):
+                
+                # Monta os totais do cabeçalho dinamicamente
+                totais = []
+                if total_atraso > 0:
+                    totais.append(f"Atrasos: {total_atraso}")
+                if total_producao > 0 and ATIVAR_ALERTA_PRODUCAO:
+                    totais.append(f"Produção: {total_producao}")
+                
+                header_info = " | ".join(totais)
+                header = f"📊 Relatório de pedidos DW em aberto\n\n{header_info}\n\n"
                 
                 atrasos = ""
                 if total_atraso > 0:
                     atrasos = "🚨 *URGENTE: PEDIDOS EM ATRASO*\n\n" + "\n\n".join(blocos_atraso) + "\n\n\n"
 
                 producao = ""
-                if total_producao > 0:
+                # Só adiciona o bloco de produção se o alerta estiver ativado
+                if total_producao > 0 and ATIVAR_ALERTA_PRODUCAO:
                     producao = "⚠️ *PEDIDOS EM PRODUÇÃO*\n\nLembrete, não se esqueça de finalizar essas tarefas.\n\n"
                     producao += "\n---------------------------------------\n".join(blocos_producao)
                 
