@@ -9,7 +9,7 @@ from pytz import timezone
 FUSO_HORARIO_SP = timezone('America/Sao_Paulo')
 
 # LIGA/DESLIGA: Altere para False para não receber alertas de tarefas "Em produção"
-ATIVAR_ALERTA_PRODUCAO = True  # Para desligar, trocar o "True" por "False"
+ATIVAR_ALERTA_PRODUCAO = False  # Para desligar, trocar o "True" por "False"
 
 # Lista de IDs por Turno
 TURNO_PARA_IDS = {
