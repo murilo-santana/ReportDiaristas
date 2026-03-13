@@ -2,8 +2,21 @@ name: automacao
 
 on:
   workflow_dispatch: # Permite rodar manual
-  # schedule:
-  #   - cron: '0 * * * *' # Exemplo: Roda de hora em hora
+  schedule:
+    # Lembrete: GitHub usa UTC (3 horas à frente de Brasília)
+    
+    # 1. Madrugada, Manhã e Tarde (Segunda a Sábado)
+    # SP: 01:30, 02:30, 05:30, 06:30, 13:30, 14:30
+    # UTC: 04:30, 05:30, 08:30, 09:30, 16:30, 17:30
+    - cron: '30 4,5,8,9,16,17 * * 1-6'
+
+    # 2. Noite (Segunda a Sábado) -> SP 21:30 vira UTC 00:30 do dia seguinte
+    # Corresponde às noites de Segunda (2) até Sábado (0 = Domingo UTC)
+    - cron: '30 0 * * 2,3,4,5,6,0'
+
+    # 3. Noite (Diário) -> SP 22:30 vira UTC 01:30 do dia seguinte
+    # Atende Segunda a Sábado + o seu horário de Domingo
+    - cron: '30 1 * * *'
 
 jobs:
   build:
@@ -17,17 +30,19 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip' # Faz cache automático das bibliotecas do pip
+          cache: 'pip'
 
       - name: Instalar Bibliotecas
+        # Adicionado pytz para evitar o erro de ModuleNotFoundError
         run: |
-          pip install playwright requests
+          pip install playwright requests pytz
+          
       - name: Cache do Playwright Browsers
         id: playwright-cache
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('**/main.py') }}
+          key: ${{ runner.os }}-playwright-chromium
 
       - name: Instalar Navegador (Apenas se não houver cache)
         if: steps.playwright-cache.outputs.cache-hit != 'true'
