@@ -8,35 +8,61 @@ from pytz import timezone
 # --- CONFIGURAÇÕES DE ESCALA ---
 FUSO_HORARIO_SP = timezone('America/Sao_Paulo')
 
+# Lista de IDs por Turno
 TURNO_PARA_IDS = {
-    "Turno 1": ["1491699724", "1461929762", "1449480651", "9465967606", "1268695707"],
-    "Turno 2": ["1458031670", "1298055860", "1281984509", "1432898616"],
-    "Turno 3": ["1277449046", "1436962469", "9474534910", "9491699714", "1499919880"]
+    "Turno 1": [
+        "1508081817",  # Tiberio
+        "1298480767",  # Barbara
+        "9465967606",  # Fidel Lúcio
+    ],
+    "Turno 2": [
+        "1386559133",  # Murilo Santana
+        "1458031670",  # Beatriz
+    ],
+    "Turno 3": [
+        "1193572348",  # Carlos
+        "9382243574",  # João
+        "9474534910",  # Kaio Baldo
+    ]
 }
 
+# Configuração de Folgas (0=Segunda, 5=Sábado, 6=Domingo)
 DIAS_DE_FOLGA = {
-    "1491699724": [6], "1461929762": [5, 6], "1449480651": [5, 6], "9465967606": [5, 6], "1268695707": [6],
-    "1458031670": [6, 0], "1298055860": [6], "1281984509": [6], "1432898616": [4, 5],
-    "1277449046": [6, 0], "1436962469": [6, 0], "9474534910": [6, 0], "9491699714": [6], "1499919880": [6]
+    # --- Turno 1 ---
+    "1508081817": [],          # Tiberio (Não tem folga no script)
+    "1298480767": [6, 0],      # Barbara (Domingo e Segunda)
+    "9465967606": [5, 6],      # Fidel Lúcio (Sábado e Domingo)
+
+    # --- Turno 2 ---
+    "1386559133": [],          # Murilo Santana (Não tem folga no script)
+    "1458031670": [6, 0],      # Beatriz (Domingo e Segunda)
+
+    # --- Turno 3 ---
+    "1193572348": [],          # Carlos (Não tem folga no script)
+    "9382243574": [6, 0],      # João (Domingo e Segunda)
+    "9474534910": [5, 6],      # Kaio Baldo (Sábado e Domingo)
 }
 
 def definir_turno_por_horario_fim(horario_str):
-    """Define o turno baseado no horário de término (T1, T2 ou T3)."""
+    """
+    T1: 06:31 - 13:30 | T2: 13:31 - 22:30 | T3: 22:31 - 06:30
+    """
     try:
         horario_fim = horario_str.split(' - ')[1].strip()
         h, m = map(int, horario_fim.split(':'))
         minutos_totais = h * 60 + m
         
-        if 391 <= minutos_totais <= 810:   # 06:31 - 13:30
+        if 391 <= minutos_totais <= 810:   # T1
             return "Turno 1"
-        elif 811 <= minutos_totais <= 1350: # 13:31 - 22:30
+        elif 811 <= minutos_totais <= 1350: # T2
             return "Turno 2"
-        else:                               # 22:31 - 06:30
+        else:                               # T3
             return "Turno 3"
     except:
         return None
 
 def filtrar_responsaveis(turno, agora):
+    """Retorna apenas os IDs do turno que não estão de folga hoje."""
     ids_brutos = TURNO_PARA_IDS.get(turno, [])
     dia_semana = agora.weekday()
     return [uid for uid in ids_brutos if dia_semana not in DIAS_DE_FOLGA.get(uid, [])]
@@ -49,13 +75,16 @@ def enviar_reporte_seatalk(mensagem, ids_urgentes=[]):
         "tag": "text",
         "text": {
             "content": mensagem,
-            "mentioned_list": ids_urgentes  # Marca APENAS os IDs de atraso
+            "mentioned_list": ids_urgentes
         }
     }
-    requests.post(webhook_url, json=payload, timeout=10)
+    try:
+        requests.post(webhook_url, json=payload, timeout=10)
+    except Exception as e:
+        logging.error(f"Erro no envio SeaTalk: {e}")
 
 def automacao_dw_management():
-    logging.info("Iniciando Robô com marcação seletiva (Atrasos)...")
+    logging.info("Iniciando Robô SOC SP5 - Regras de Folga Atualizadas...")
     agora = datetime.now(FUSO_HORARIO_SP)
     email, senha = os.getenv("EMAIL_LOGIN"), os.getenv("SENHA_LOGIN")
 
@@ -65,6 +94,7 @@ def automacao_dw_management():
         page = context.new_page()
 
         try:
+            # Login e Navegação
             page.goto("https://dwmanagement.spx.com.br/admin/login", timeout=60000)
             page.locator("[id='data.email']").fill(email)
             page.locator("[id='data.password']").fill(senha)
@@ -76,7 +106,7 @@ def automacao_dw_management():
 
             total_producao, total_atraso = 0, 0
             blocos_atraso, blocos_producao = [], []
-            ids_para_marcar = set() # Usaremos apenas para ATRASOS
+            ids_para_marcar = set()
             encontrou_finalizado = False
 
             while not encontrou_finalizado:
@@ -101,7 +131,7 @@ def automacao_dw_management():
                     if status == "Em atraso":
                         total_atraso += 1
                         blocos_atraso.append(f"🏢 BPO: {colunas[2]}\n📅 Data: {colunas[7]}\n⏱️ Horário: {horario_texto}")
-                        # BUSCA RESPONSÁVEIS APENAS SE ESTIVER EM ATRASO
+                        # Notificação sonora apenas para ATRASOS
                         responsaveis = filtrar_responsaveis(turno_da_tarefa, agora)
                         ids_para_marcar.update(responsaveis)
 
@@ -126,9 +156,10 @@ def automacao_dw_management():
                     producao = "⚠️ *PEDIDOS EM PRODUÇÃO*\n\nLembrete, não se esqueça de finalizar essas tarefas.\n\n"
                     producao += "\n---------------------------------------\n".join(blocos_producao)
                 
-                # Envia a lista de IDs APENAS se houver atrasos
                 enviar_reporte_seatalk(header + atrasos + producao, list(ids_para_marcar))
 
+        except Exception as e:
+            logging.error(f"Erro na execução: {e}")
         finally:
             browser.close()
 
